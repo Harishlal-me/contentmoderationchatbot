@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Data (too large for GitHub)
+data/external/*.csv
+data/raw/*.csv
+*.csv
+
+# Models (too large for GitHub)
+*.pth
+*.pt
+*.h5
+*.pkl
+models/saved_models/*.pth
+
+# Logs
+*.log
+logs/
+
+# Temporary
+temp/
+tmp/
+.cache/
