@@ -8,6 +8,10 @@ import torch.nn as nn
 from transformers import BertModel, BertTokenizer
 import sys
 import os
+import warnings
+import streamlit as st
+
+warnings.filterwarnings('ignore')
 
 # Add models directory to Python path so torch.load can find config
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
@@ -106,27 +110,19 @@ def predict_texts(model, tokenizer, texts, device):
     print("\n" + "="*70)
 
 
-# Global variables for caching
-GLOBAL_MODEL = None
-GLOBAL_TOKENIZER = None
-
-def get_model_and_tokenizer(device=None):
-    """Load model and tokenizer once and cache them globally."""
-    global GLOBAL_MODEL, GLOBAL_TOKENIZER
-    
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+@st.cache_resource(show_spinner=False)
+def get_model_and_tokenizer():
+    """Load model and tokenizer once and cache them globally using Streamlit."""
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-    if GLOBAL_MODEL is None:
-        model_path = os.path.join(os.path.dirname(__file__), 'models/saved_models/bert_cyberbullying_model.pth')
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found at {model_path}. Please train the model first.")
-        GLOBAL_MODEL = load_model(model_path, device)
+    model_path = os.path.join(os.path.dirname(__file__), 'models/saved_models/bert_cyberbullying_model.pth')
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model not found at {model_path}. Please train the model first.")
+    model = load_model(model_path, device)
         
-    if GLOBAL_TOKENIZER is None:
-        GLOBAL_TOKENIZER = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         
-    return GLOBAL_MODEL, GLOBAL_TOKENIZER, device
+    return model, tokenizer, device
 
 def predict_text(text):
     """

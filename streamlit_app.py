@@ -1,6 +1,8 @@
 """
 CYBERGUARD AI — Cyberbullying Threat Detection Dashboard
 """
+import warnings
+warnings.filterwarnings('ignore')
 
 import streamlit as st
 import time

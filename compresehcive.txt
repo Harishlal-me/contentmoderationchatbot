@@ -1,0 +1,79 @@
+========================================================================
+CYBERGUARD AI: COMPREHENSIVE PROJECT DOCUMENTATION
+========================================================================
+
+1. PROJECT OVERVIEW
+------------------------------------------------------------------------
+The CyberGuard AI project is a production-ready, deep-learning-based
+cyberbullying detection system. It is designed to analyze social media or 
+general text inputs in real-time, determine whether the content is safe 
+or contains cyberbullying, and provide confidence metrics on its prediction.
+
+The primary goal of the system is user safety, thus it prioritizes a high 
+Recall (94.50%)—meaning it aims to catch as much cyberbullying as possible 
+so very few threats slip through the cracks. It maintains an F1-Score of 
+94.19%.
+
+2. SYSTEM ARCHITECTURE & DATA FLOW
+------------------------------------------------------------------------
+1. Input: A user types text into the Streamlit dashboard stream.
+2. Transport: The dashboard calls the backend prediction function (`predict_text` 
+   in `predict_final.py`).
+3. Tokenization: The text is tokenized into IDs and Attention Masks using 
+   the Hugging Face `BertTokenizer`.
+4. Neural Evaluation: The PyTorch BERT model processes the tokens. 
+5. Classification: The output is passed through a linear classification layer 
+   and a Softmax function to generate probabilities.
+6. Threshold: A lower threshold (0.45) is utilized for class 1 (Cyberbullying) 
+   to increase model sensitivity to threats.
+7. Output: The final prediction, probability/confidence score, and compute 
+   latency are returned to the frontend.
+8. UI Update: The UI transitions to update the visual verdict card, charts, 
+   and adds the event to the system logs/history.
+
+3. THE BACKEND & AI MODEL
+------------------------------------------------------------------------
+- Core Engine: PyTorch.
+- Base Architecture: `bert-base-uncased` (Bidirectional Encoder 
+  Representations from Transformers), comprising 110 million parameters, 
+  12 attention layers, and 768 hidden dimensions.
+- Custom Module: A PyTorch class (`BERTClassifier`) adds a Dropout 
+  regularizer (p=0.3) and a Linear fully-connected layer to map the 768 
+  dimensions into 2 discrete classes (0: SAFE, 1: CYBERBULLYING).
+- Training Data: The model was trained on 59,450 diverse samples combined 
+  from:
+  * Cyberbullying Tweets (Kaggle)
+  * Sentiment140 (Positives)
+  * Hate Speech dataset (Offensive examples)
+  * Hand-curated edge cases (Sarcasm, negated sentences, internet slang).
+- Caching: Streamlit's `@st.cache_resource` is used to load the 110M 
+  parameter model and tokenizer into GPU/CPU memory once on startup to 
+  allow for sub-500ms real-time inference requests.
+
+4. THE FRONTEND DASHBOARD
+------------------------------------------------------------------------
+- Framework: Python Streamlit (`streamlit_app.py`).
+- Interface Guidelines: Premium, highly dynamic "Cyberpunk/Futuristic" UI 
+  resembling a security threat intelligence system. Uses dark themes, neon 
+  accents, and glassmorphism.
+- Key Sections:
+  1. HOME: Displays real-time model baseline metrics (Recall, Precision) 
+     and animated telemetry/logs of system startup.
+  2. DETECTION: The primary functional tab. Accepts user text inputs. Returns 
+     color-coded verdicts (Green=Safe, Red=Threat) alongside animated CSS 
+     confidence bars and categorical tags.
+  3. STATISTICS: Processes the session history using Python Pandas and 
+     visualizes the proportion of SAFE vs THREAT data using dynamic Plotly 
+     pie charts and certainty histograms.
+  4. PERFORMANCE: Displays hardcoded baseline model evaluation metrics on 
+     various categories (e.g., Direct Insults vs. Sarcasm).
+
+5. KEY FILES SUMMARY
+------------------------------------------------------------------------
+- `streamlit_app.py`: The frontend UI application orchestrating the layout, 
+  CSS styles, JavaScript injection, interactions, charts, and routing.
+- `predict_final.py`: The streamlined backend inference script linking the 
+  Streamlit UI directly to the local PyTorch `/models` model checkpoint weights.
+- `test_gpu.py`: Utility script to test local CUDA / GPU accessibility.
+- `README.md` & `MODEL_COMPARISON_REPORT.md`: Exhaustive details on model 
+  loss functions, performance evaluations, and research methodology.
