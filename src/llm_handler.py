@@ -1,52 +1,202 @@
-import os
+"""
+llm_handler.py — Enhanced CyberGuard AI LLM Handler
+-----------------------------------------------------
+Improvements:
+  - Dataclass-based message models for type safety
+  - Enum-driven intent detection (no magic strings)
+  - Configurable settings via LLMConfig dataclass
+  - Retry logic with exponential back-off
+  - Structured logging instead of bare print()
+  - Streaming helper refactored into its own method
+  - Fallback logic fully decoupled from HTTP logic
+  - Comprehensive docstrings and inline comments
+"""
+
+from __future__ import annotations
+
 import json
+import logging
 import time
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Generator, Optional
+
 import requests
-from src.prompt_templates import SYSTEM_PROMPT
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# Greetings that should get a warm, natural response
-GREETING_WORDS = {"hi", "hello", "hey", "hiya", "howdy", "sup", "yo", "greetings", "good morning", "good afternoon", "good evening"}
+try:
+    from src.prompt_templates import CHAT_PROMPT
+except ImportError:  # graceful degradation if module is missing
+    CHAT_PROMPT = "You are CyberGuard AI, an assistant for cyberbullying awareness."
 
-def _get_smart_fallback(conversation_history, system_override):
+# ─────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+)
+
+
+# ─────────────────────────────────────────────────────────────
+# Constants & Enums
+# ─────────────────────────────────────────────────────────────
+
+GREETING_WORDS: frozenset[str] = frozenset({
+    "hi", "hello", "hey", "hiya", "howdy", "sup", "yo",
+    "greetings", "good morning", "good afternoon", "good evening",
+})
+
+POSITIVE_WORDS: tuple[str, ...] = ("thank", "thanks", "thx", "great", "awesome", "cool", "nice")
+
+ANALYSIS_WORDS: tuple[str, ...] = (
+    "analyze", "analysis", "check", "detect",
+    "is this", "is it", "cyberbully", "toxic", "harmful", "safe",
+)
+
+
+class UserIntent(Enum):
+    """Categorised user intentions for smart fallback selection."""
+    GREETING   = auto()
+    QUIZ       = auto()
+    ASSESSMENT = auto()
+    POSITIVE   = auto()
+    ANALYSIS   = auto()
+    UNKNOWN    = auto()
+
+
+# ─────────────────────────────────────────────────────────────
+# Configuration
+# ─────────────────────────────────────────────────────────────
+
+@dataclass
+class LLMConfig:
     """
-    Generate a context-aware fallback response when Ollama is offline.
-    Reads the last user message and/or the system_override to pick an appropriate reply.
+    Central configuration for the LLM handler.
+
+    Attributes:
+        model:          Ollama model tag to use.
+        base_url:       Base URL of the Ollama server.
+        timeout:        HTTP request timeout in seconds.
+        max_retries:    Number of automatic retries on transient failures.
+        context_window: How many history turns to include per request.
+        num_ctx:        LLM context size (tokens).
+        num_predict:    Max tokens to generate.
+        stream_delay:   Seconds between words in fallback streaming.
     """
-    # Detect the last user message
-    last_user_msg = ""
-    for msg in reversed(conversation_history):
-        if msg.get("role") == "user":
-            last_user_msg = msg.get("content", "").strip().lower()
-            break
+    model:          str   = "llama3.2"
+    base_url:       str   = "http://localhost:11434"
+    timeout:        int   = 60
+    max_retries:    int   = 2
+    context_window: int   = 10
+    num_ctx:        int   = 2048
+    num_predict:    int   = 1024
+    stream_delay:   float = 0.03
 
-    # Detect if this is a QUIZ command
-    is_quiz = system_override and "QUIZ_PROMPT" in system_override or (
-        system_override and "Quiz Generator" in system_override
-    ) or (system_override and "Difficulty Level" in system_override) or (
-        system_override and "interactive Multiple-Choice Quiz" in (system_override or "")
-    )
+    @property
+    def chat_url(self) -> str:
+        return f"{self.base_url}/api/chat"
 
-    # Detect if this is an ASSESSMENT command
-    is_assess = system_override and "ASSESSMENT_PROMPT" in system_override or (
-        system_override and "Assessment Module" in (system_override or "")
-    ) or (system_override and "moderation training" in (system_override or ""))
 
-    # ── GREETING ──
-    first_word = last_user_msg.split()[0] if last_user_msg.split() else ""
-    if first_word in GREETING_WORDS or last_user_msg in GREETING_WORDS:
-        return (
-            "👋 **Hello! I'm CyberGuard AI** — your intelligent assistant for cyberbullying awareness and content moderation.\n\n"
+# ─────────────────────────────────────────────────────────────
+# Data Models
+# ─────────────────────────────────────────────────────────────
+
+@dataclass
+class Message:
+    """Represents a single conversation turn."""
+    role:    str
+    content: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"role": self.role, "content": self.content}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Message":
+        return cls(
+            role=str(data.get("role", "user")),
+            content=str(data.get("content", "")),
+        )
+
+
+@dataclass
+class ConversationContext:
+    """
+    Wraps a raw history list and exposes helpers for intent detection
+    and building the message payload for the API.
+    """
+    history: list[dict] = field(default_factory=list)
+
+    @property
+    def last_user_message(self) -> str:
+        for msg in reversed(self.history):
+            if msg.get("role") == "user":
+                return msg.get("content", "").strip().lower()
+        return ""
+
+    def as_messages(self, window: int) -> list[dict[str, str]]:
+        """Return the last `window` turns as API-ready dicts."""
+        return [Message.from_dict(m).to_dict() for m in self.history[-window:]]
+
+    def detect_intent(self, system_override: Optional[str]) -> UserIntent:
+        """
+        Determine the user's primary intent from the last message
+        and the active system prompt, so the right fallback fires.
+        """
+        msg  = self.last_user_message
+        sys  = system_override or ""
+        word = msg.split()[0] if msg.split() else ""
+
+        # Greeting
+        if word in GREETING_WORDS or msg in GREETING_WORDS:
+            return UserIntent.GREETING
+
+        # Quiz — triggered by keyword in system prompt OR user message
+        quiz_signals = ("QUIZ_PROMPT", "Quiz Generator", "Difficulty Level",
+                        "interactive Multiple-Choice Quiz")
+        if "quiz" in msg or any(s in sys for s in quiz_signals):
+            return UserIntent.QUIZ
+
+        # Assessment
+        assess_signals = ("ASSESSMENT_PROMPT", "Assessment Module", "moderation training")
+        if "assessment" in msg or any(s in sys for s in assess_signals):
+            return UserIntent.ASSESSMENT
+
+        # Positive sentiment
+        if any(w in msg for w in POSITIVE_WORDS):
+            return UserIntent.POSITIVE
+
+        # Analysis request
+        if any(w in msg for w in ANALYSIS_WORDS):
+            return UserIntent.ANALYSIS
+
+        return UserIntent.UNKNOWN
+
+
+# ─────────────────────────────────────────────────────────────
+# Fallback Response Builder
+# ─────────────────────────────────────────────────────────────
+
+class FallbackResponder:
+    """
+    Generates context-aware fallback responses when the LLM is offline.
+    Each intent maps to a dedicated builder method for easy extension.
+    """
+
+    _RESPONSES: dict[UserIntent, str] = {
+        UserIntent.GREETING: (
+            "👋 **Hello! I'm CyberGuard AI** — your intelligent assistant for "
+            "cyberbullying awareness and content moderation.\n\n"
             "Here's what I can do for you:\n"
             "- 🔍 **Analyze text** for cyberbullying or toxic content\n"
             "- 🎯 **Generate quizzes** to test your detection skills\n"
             "- 📊 **Run assessment exercises** to practice identifying harmful content\n"
             "- ✍️ **Rewrite harmful messages** into safer alternatives\n\n"
             "What would you like to do today?"
-        )
-
-    # ── QUIZ MODULE ──
-    if is_quiz or "quiz" in last_user_msg:
-        return (
+        ),
+        UserIntent.QUIZ: (
             "🎯 **Let's start the Cyberbullying Detection Quiz!**\n\n"
             "Before I generate your questions, I need two things from you:\n\n"
             "**1. Difficulty Level:**\n"
@@ -59,12 +209,9 @@ def _get_smart_fallback(conversation_history, system_override):
             "- Online Harassment\n"
             "- Severity Classification\n"
             "- All Topics (mixed)\n\n"
-            "Reply with your choices and I'll generate your personalized quiz! 🚀"
-        )
-
-    # ── ASSESSMENT MODULE ──
-    if is_assess or "assessment" in last_user_msg:
-        return (
+            "Reply with your choices and I'll generate your personalised quiz! 🚀"
+        ),
+        UserIntent.ASSESSMENT: (
             "📊 **Content Moderation Assessment — Starting Now!**\n\n"
             "Read the following paragraph carefully. It contains a **mix of normal and harmful sentences**.\n\n"
             "---\n\n"
@@ -79,91 +226,200 @@ def _get_smart_fallback(conversation_history, system_override):
             "1. **Identify** which sentence numbers are harmful\n"
             "2. **Assign severity** to each: `Low` / `Medium` / `High`\n\n"
             "Take your time and share your answers when ready! 💪"
-        )
-
-    # ── THANKS / POSITIVE ──
-    if any(w in last_user_msg for w in ["thank", "thanks", "thx", "great", "awesome", "cool", "nice"]):
-        return (
+        ),
+        UserIntent.POSITIVE: (
             "😊 You're welcome! Is there anything else I can help you with?\n\n"
-            "I can **analyze text**, run a **quiz**, or start an **assessment** anytime you're ready."
-        )
-
-    # ── CYBERBULLYING / ANALYSIS QUESTION ──
-    if any(w in last_user_msg for w in ["analyze", "analysis", "check", "detect", "is this", "is it", "cyberbully", "toxic", "harmful", "safe"]):
-        return (
+            "I can **analyze text**, run a **quiz**, or start an **assessment** anytime."
+        ),
+        UserIntent.ANALYSIS: (
             "🔍 **Analysis Mode**\n\n"
-            "I can analyze that for you! My BERT classifier is running locally and has already processed your message.\n\n"
+            "I can analyze that for you! My BERT classifier has already processed your message.\n\n"
             "Once my language model (Ollama) finishes loading, I'll provide:\n"
             "- **Classification** — What type of content this is\n"
             "- **Severity** — Low / Medium / High\n"
             "- **Reasoning** — Why it's harmful or safe\n"
             "- **Alternatives** — Safer ways to express the same idea\n\n"
             "Please share the text you'd like me to analyze and I'll get started!"
-        )
+        ),
+        UserIntent.UNKNOWN: (
+            "I understand your message. I'm CyberGuard AI — here to help with "
+            "**cyberbullying detection, content moderation, quizzes, and assessments**.\n\n"
+            "*(Note: My language model is currently loading. Full AI responses will "
+            "be available shortly.)*\n\n"
+            "In the meantime, you can:\n"
+            "- 🎯 Click **Quiz Generator** in the sidebar to test your skills\n"
+            "- 📊 Click **Assessment flow** to practice identifying harmful content\n"
+            "- 🔍 Paste any message here and I'll detect if it's harmful"
+        ),
+    }
 
-    # ── DEFAULT / GENERIC ──
-    return (
-        "I understand your message. I'm CyberGuard AI — here to help with **cyberbullying detection, content moderation, quizzes, and assessments**.\n\n"
-        "*(Note: My language model is currently loading. Full AI responses will be available shortly.)*\n\n"
-        "In the meantime, you can:\n"
-        "- 🎯 Click **Quiz Generator** in the sidebar to test your skills\n"
-        "- 📊 Click **Assessment flow** to practice identifying harmful content\n"
-        "- 🔍 Paste any message here and I'll detect if it's harmful"
-    )
+    @classmethod
+    def get(cls, intent: UserIntent) -> str:
+        """Return the pre-written fallback string for the given intent."""
+        return cls._RESPONSES.get(intent, cls._RESPONSES[UserIntent.UNKNOWN])
 
+
+# ─────────────────────────────────────────────────────────────
+# LLM Handler
+# ─────────────────────────────────────────────────────────────
 
 class LLMHandler:
-    def __init__(self, model="llama3.2"):
-        self.model = model
-        self.url = "http://localhost:11434/api/chat"
+    """
+    Manages communication with the local Ollama LLM server.
 
-    def set_api_key(self, api_key):
-        pass  # Not needed for Ollama
+    Features:
+    - Streaming token-by-token responses
+    - Configurable retry + back-off via `requests.Session`
+    - Context-aware fallback when the server is unreachable
+    - Clean separation of config, context, and fallback concerns
+    """
 
-    def generate_response(self, conversation_history, system_override=None):
+    def __init__(self, config: Optional[LLMConfig] = None) -> None:
+        self.config  = config or LLMConfig()
+        self.session = self._build_session()
+
+    # ----------------------------------------------------------
+    # Public API
+    # ----------------------------------------------------------
+
+    def set_model(self, model: str) -> None:
+        """Hot-swap the model without re-creating the handler."""
+        self.config.model = model
+        logger.info("Model updated to '%s'", model)
+
+    # Kept for backwards compatibility with existing callers
+    def set_api_key(self, api_key: str) -> None:  # noqa: ARG002
+        """No-op — Ollama does not require an API key."""
+
+    def generate_response(
+        self,
+        conversation_history: list[dict],
+        system_override: Optional[str] = None,
+        assistant_prefill: Optional[str] = None,
+    ) -> Generator[str, None, None]:
         """
-        Calls the local Ollama LLM via direct HTTP request.
-        Falls back to a smart, context-aware response if Ollama is offline.
+        Yield response tokens from the Ollama LLM.
+
+        If the server is unreachable or returns an error, automatically
+        falls back to a context-aware canned response streamed word-by-word.
+
+        Args:
+            conversation_history: List of ``{"role": …, "content": …}`` dicts.
+            system_override:      Optional system prompt to replace the default.
+            assistant_prefill:    Optional string prepended to the assistant turn.
+
+        Yields:
+            Strings (tokens or words) that form the complete response.
         """
-        messages = []
-
-        sys_msg = system_override if system_override else SYSTEM_PROMPT
-        messages.append({"role": "system", "content": sys_msg})
-
-        for msg in conversation_history[-10:]:
-            messages.append({
-                "role": msg.get("role", "user"),
-                "content": str(msg.get("content", ""))
-            })
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-            "options": {
-                "num_ctx": 2048,
-                "num_predict": 1024
-            }
-        }
+        ctx     = ConversationContext(history=conversation_history)
+        payload = self._build_payload(ctx, system_override, assistant_prefill)
 
         try:
-            response = requests.post(self.url, json=payload, stream=True, timeout=60)
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode('utf-8')
-                    try:
-                        data = json.loads(decoded)
-                        if "message" in data and "content" in data["message"]:
-                            yield data["message"]["content"]
-                    except json.JSONDecodeError:
-                        pass
-        except Exception:
-            # Smart, context-aware fallback when Ollama is offline/loading
-            fallback_msg = _get_smart_fallback(conversation_history, system_override)
+            yield from self._stream_llm(payload, assistant_prefill)
+        except Exception as exc:
+            logger.warning("LLM unavailable (%s). Serving fallback response.", exc)
+            intent = ctx.detect_intent(system_override)
+            yield from self._stream_fallback(FallbackResponder.get(intent))
 
-            # Stream word-by-word for a realistic typing effect
-            words = fallback_msg.split(' ')
-            for idx, word in enumerate(words):
-                time.sleep(0.03)
-                yield word + (' ' if idx < len(words) - 1 else '')
+    # ----------------------------------------------------------
+    # Private helpers
+    # ----------------------------------------------------------
+
+    def _build_session(self) -> requests.Session:
+        """
+        Create a `requests.Session` with automatic retry on 5xx errors
+        and connection failures, using exponential back-off.
+        """
+        retry = Retry(
+            total=self.config.max_retries,
+            backoff_factor=0.5,
+            status_forcelist=(500, 502, 503, 504),
+            allowed_methods={"POST"},
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session = requests.Session()
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
+
+    def _build_payload(
+        self,
+        ctx: ConversationContext,
+        system_override: Optional[str],
+        assistant_prefill: Optional[str],
+    ) -> dict:
+        """Assemble the JSON payload for the Ollama /api/chat endpoint."""
+        system_prompt = system_override or CHAT_PROMPT
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(ctx.as_messages(self.config.context_window))
+
+        if assistant_prefill:
+            messages.append({"role": "assistant", "content": assistant_prefill})
+
+        return {
+            "model":    self.config.model,
+            "messages": messages,
+            "stream":   True,
+            "options": {
+                "num_ctx":     self.config.num_ctx,
+                "num_predict": self.config.num_predict,
+            },
+        }
+
+    def _stream_llm(
+        self,
+        payload: dict,
+        assistant_prefill: Optional[str],
+    ) -> Generator[str, None, None]:
+        """
+        POST the payload to Ollama and yield content tokens as they arrive.
+
+        Raises:
+            requests.HTTPError: If the server responds with a 4xx / 5xx status.
+            requests.ConnectionError: If the server cannot be reached.
+        """
+        if assistant_prefill:
+            yield assistant_prefill
+
+        with self.session.post(
+            self.config.chat_url,
+            json=payload,
+            stream=True,
+            timeout=self.config.timeout,
+        ) as response:
+            response.raise_for_status()
+            for raw_line in response.iter_lines():
+                if not raw_line:
+                    continue
+                try:
+                    data = json.loads(raw_line.decode("utf-8"))
+                except json.JSONDecodeError:
+                    logger.debug("Skipping non-JSON line: %r", raw_line)
+                    continue
+
+                token = data.get("message", {}).get("content")
+                if token:
+                    yield token
+
+                if data.get("done"):
+                    logger.debug(
+                        "LLM stream complete. eval_duration=%s ms",
+                        data.get("eval_duration", "n/a"),
+                    )
+                    break
+
+    def _stream_fallback(self, text: str) -> Generator[str, None, None]:
+        """
+        Stream a fallback string word-by-word to simulate a typing effect.
+
+        Args:
+            text: The complete fallback response string.
+
+        Yields:
+            Individual words followed by a space (except the last).
+        """
+        words = text.split(" ")
+        last  = len(words) - 1
+        for idx, word in enumerate(words):
+            time.sleep(self.config.stream_delay)
+            yield word if idx == last else word + " "

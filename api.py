@@ -1,6 +1,16 @@
 import os
+import sys
 import json
 import asyncio
+import io
+
+# Force UTF-8 encoding locally to avoid charmap codec crashes 
+# if BERT or other modules print unicode symbols (e.g. checkmarks)
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -41,8 +51,8 @@ async def chat_endpoint(req: ChatRequest):
     result = controller.process_message(req.prompt, history_dicts)
     
     async def text_generator():
-        yield json.dumps(result["bert"]) + "\n|||\n"
-        gen = result["response_generator"]
+        yield json.dumps(result.bert) + "\n|||\n"
+        gen = result.response_generator
         for chunk in gen:
             await asyncio.sleep(0.01)
             yield chunk
@@ -62,3 +72,5 @@ async def command_endpoint(req: CommandRequest):
             yield chunk
             
     return StreamingResponse(text_generator(), media_type="text/plain")
+
+# Trigger reload

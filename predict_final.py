@@ -9,7 +9,6 @@ from transformers import BertModel, BertTokenizer
 import sys
 import os
 import warnings
-import streamlit as st
 
 warnings.filterwarnings('ignore')
 
@@ -56,7 +55,7 @@ def load_model(model_path, device):
     model.to(device)
     model.eval()
     
-    print("✓ Model loaded")
+    print("[OK] Model loaded")
     
     return model
 
@@ -100,7 +99,7 @@ def predict_texts(model, tokenizer, texts, device):
             confidence = probabilities[0][prediction].item()
         
         # Display result
-        label = "🚨 CYBERBULLYING" if prediction == 1 else "✅ NOT CYBERBULLYING"
+        label = "[CYBERBULLYING] ALERT" if prediction == 1 else "[OK] NOT CYBERBULLYING"
         
         print(f"\n[{i}] Text: '{text}'")
         print(f"    Prediction: {label}")
@@ -110,19 +109,27 @@ def predict_texts(model, tokenizer, texts, device):
     print("\n" + "="*70)
 
 
-@st.cache_resource(show_spinner=False)
+_model = None
+_tokenizer = None
+_device = None
+
 def get_model_and_tokenizer():
-    """Load model and tokenizer once and cache them globally using Streamlit."""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    """Load model and tokenizer once and cache them globally."""
+    global _model, _tokenizer, _device
+    
+    if _model is not None:
+        return _model, _tokenizer, _device
+    
+    _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
     model_path = os.path.join(os.path.dirname(__file__), 'models/saved_models/bert_cyberbullying_model.pth')
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model not found at {model_path}. Please train the model first.")
-    model = load_model(model_path, device)
+    _model = load_model(model_path, _device)
         
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    _tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         
-    return model, tokenizer, device
+    return _model, _tokenizer, _device
 
 def predict_text(text):
     """
