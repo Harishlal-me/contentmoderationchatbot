@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import io
+from datetime import datetime
 
 # Force UTF-8 encoding locally to avoid charmap codec crashes 
 # if BERT or other modules print unicode symbols (e.g. checkmarks)
@@ -51,6 +52,27 @@ def _get_status_label(risk_score: int) -> str:
     else:
         return "🟢 SAFE"
 
+def _analyze_performance(scores: list[int]) -> str:
+    if len(scores) < 2:
+        return "Not enough data yet — send more messages to see trends."
+    if scores[-1] > scores[0] + 10:
+        return "Behavior is worsening — risk is increasing over time."
+    elif scores[-1] < scores[0] - 10:
+        return "Behavior is improving — risk is decreasing over time."
+    else:
+        return "Behavior is stable — risk score is consistent."
+
+def _generate_suggestion(scores: list[int]) -> str:
+    if not scores:
+        return ""
+    avg = sum(scores) / len(scores)
+    if avg > 70:
+        return "Try avoiding aggressive or insulting language."
+    elif avg > 40:
+        return "Be mindful of tone — some messages may sound negative."
+    else:
+        return "Your communication is clear and respectful. Keep it up!"
+
 class Message(BaseModel):
     role: str
     content: str
@@ -92,6 +114,7 @@ async def chat_endpoint(req: ChatRequest):
             "status": _get_status_label(risk_score),
             "summary": _generate_summary(risk_score),
             "confidence": round(bert.get("confidence", 0) * 100, 1),
+            "time": datetime.now().strftime("%H:%M:%S"),
         }
         _SESSION_STORE.setdefault(user_id, []).append(entry)
 
@@ -130,18 +153,21 @@ async def command_endpoint(req: CommandRequest):
 
 @app.get("/api/session/{user_id}")
 def get_session(user_id: str):
-    """Return live session stats + message history for the analysis panel."""
+    """Return live session stats + performance analysis for the dashboard."""
     history = _SESSION_STORE.get(user_id, [])
     total   = len(history)
     toxic   = sum(1 for m in history if m["risk_score"] > 60)
     avg     = round(sum(m["risk_score"] for m in history) / total, 1) if total else 0.0
+    scores  = [m["risk_score"] for m in history]
     return {
         "history": history,
         "stats": {
-            "total":  total,
-            "toxic":  toxic,
-            "avg":    avg,
-        }
+            "total":   total,
+            "toxic":   toxic,
+            "avg":     avg,
+        },
+        "insight":    _analyze_performance(scores),
+        "suggestion": _generate_suggestion(scores),
     }
 
 
