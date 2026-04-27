@@ -59,6 +59,14 @@ def validate_verdict(bert_result: dict, parsed_llm: dict) -> dict:
             llm_category = "None"
             llm_reasoning = "LLM parsing failed. Fast-path BERT verified safe."
 
+    # Guardrail 3: Hard-override for critical keywords/categories
+    # If the regex scanner found extreme categories, force HIGH risk
+    if any(cat in found_categories for cat in ["Threat", "Hate Speech", "Harassment", "Insult", "Profanity"]):
+        if llm_risk < 80:
+            llm_risk = 85 + (len(found_categories) * 2) # High base + bonus for multiple flags
+        llm_classification = "HIGH"
+        llm_action = "Block"
+    
     # Mapping to UI expected fields
     final_label = "Safe"
     if llm_classification == "HIGH": final_label = "Unsafe"
@@ -76,14 +84,17 @@ def validate_verdict(bert_result: dict, parsed_llm: dict) -> dict:
     action_icon = "🚫" if llm_action == "Block" else "⚠️" if llm_action == "Warn" else "✅"
 
     return {
+        "text": text,
+        "confidence": bert_confidence,
         "final_label": final_label,
         "action": llm_action,
         "action_icon": action_icon,
-        "risk_score": llm_risk,
+        "risk_score": min(llm_risk, 100), 
         "risk_label": risk_label,
         "categories": cats,
         "severities": [llm_classification],
         "reasoning": llm_reasoning,
+        "is_threat": llm_classification == "HIGH" or bert_is_threat,
         "context_note": "Rule validated.",
         "is_positive_context": False,
     }

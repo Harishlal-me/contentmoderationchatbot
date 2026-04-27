@@ -295,6 +295,7 @@ class ChatController:
         if is_analysis:
             raw = self.bert_module.classify_text(message)
             bert_result = raw if isinstance(raw, dict) else BertResult.empty(message).to_dict()
+            final_decision = validate_verdict(bert_result, {})
             
             # --- Behavioral Context Builder ---
             # Score-based tracking: >60 is considered harmful/toxic
@@ -311,6 +312,7 @@ class ChatController:
             conversation_history.append({"role": "user", "content": final_prompt})
         else:
             bert_result = BertResult.empty(message).to_dict()
+            final_decision = validate_verdict(bert_result, {})
             conversation_history.append({"role": "user", "content": message})
 
         # Shared list populated in-place by the generator below
@@ -319,7 +321,7 @@ class ChatController:
         def _capturing_generator() -> Generator[str, None, None]:
             prefill = None
             if is_analysis:
-                r_score = bert_result.get("risk_score", 0)
+                r_score = final_decision.get("risk_score", 0)
                 if r_score < 40:
                     label = "SAFE"
                 elif r_score < 70:
@@ -338,7 +340,7 @@ class ChatController:
                 yield chunk
 
         return PipelineResult(
-            bert=bert_result,
+            bert=final_decision,
             verdict=InitialVerdict().to_dict(),
             response_generator=_capturing_generator(),
             response_parts=response_parts,
