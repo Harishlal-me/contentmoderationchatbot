@@ -326,8 +326,8 @@ class ChatController:
                     icon = "🟡 WARNING"
                 else:
                     icon = "🔴 UNSAFE"
-                # User asked to prefill ONLY the first line
-                prefill = f"{icon}\nConfidence: "
+                # Prefill only the status header — let LLM fill the Markdown sections
+                prefill = f"{icon}\n\n"
 
             for chunk in self.llm_handler.generate_response(
                 conversation_history,

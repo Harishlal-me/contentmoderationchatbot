@@ -31,6 +31,26 @@ app.add_middleware(
 
 controller = ChatController()
 
+# ── In-memory session store ──────────────────────────────────
+# Keyed by user_id (frontend passes "default" for single-user mode)
+_SESSION_STORE: dict[str, list[dict]] = {}
+
+def _generate_summary(risk_score: int) -> str:
+    if risk_score >= 70:
+        return "Direct harmful or abusive language"
+    elif risk_score >= 40:
+        return "Potentially negative or sarcastic tone"
+    else:
+        return "Safe and non-harmful"
+
+def _get_status_label(risk_score: int) -> str:
+    if risk_score >= 70:
+        return "🔴 UNSAFE"
+    elif risk_score >= 40:
+        return "🟡 WARNING"
+    else:
+        return "🟢 SAFE"
+
 class Message(BaseModel):
     role: str
     content: str
@@ -39,6 +59,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     prompt: str
     history: List[Message]
+    user_id: str = "default"
 
 class CommandRequest(BaseModel):
     cmd: str
@@ -56,9 +77,24 @@ async def chat_endpoint(req: ChatRequest):
             "risk_score": info.get("risk_score", 0),
             "is_threat": info.get("is_threat", False)
         })
-        
+
+    user_id = req.user_id
     result = controller.process_message(req.prompt, history_dicts)
-    
+
+    # Track ALL analyzed messages in the session store
+    bert = result.bert
+    risk_score = bert.get("risk_score", 0)
+    # Track if BERT ran (is_threat is set, even if False = explicit safe result)
+    if "is_threat" in bert:
+        entry = {
+            "text": req.prompt[:120],
+            "risk_score": risk_score,
+            "status": _get_status_label(risk_score),
+            "summary": _generate_summary(risk_score),
+            "confidence": round(bert.get("confidence", 0) * 100, 1),
+        }
+        _SESSION_STORE.setdefault(user_id, []).append(entry)
+
     async def text_generator():
         yield json.dumps(result.bert) + "\n|||\n"
         gen = result.response_generator
@@ -91,4 +127,26 @@ async def command_endpoint(req: CommandRequest):
             
     return StreamingResponse(text_generator(), media_type="text/plain")
 
-# Trigger reload
+
+@app.get("/api/session/{user_id}")
+def get_session(user_id: str):
+    """Return live session stats + message history for the analysis panel."""
+    history = _SESSION_STORE.get(user_id, [])
+    total   = len(history)
+    toxic   = sum(1 for m in history if m["risk_score"] > 60)
+    avg     = round(sum(m["risk_score"] for m in history) / total, 1) if total else 0.0
+    return {
+        "history": history,
+        "stats": {
+            "total":  total,
+            "toxic":  toxic,
+            "avg":    avg,
+        }
+    }
+
+
+@app.delete("/api/session/{user_id}")
+def reset_session(user_id: str):
+    """Clear session data (e.g. after 'New Chat')."""
+    _SESSION_STORE.pop(user_id, None)
+    return {"ok": True}

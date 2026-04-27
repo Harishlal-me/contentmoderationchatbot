@@ -122,7 +122,8 @@ export default function MessageBubble({ msg, onRewrite, isExplicitRequest, isSho
               prose prose-invert max-w-none text-[15px] leading-relaxed
               prose-p:leading-relaxed prose-p:my-1
               prose-headings:text-textMain prose-headings:font-semibold
-              prose-h3:text-[16px] prose-h3:mt-4 prose-h3:mb-2
+              prose-h2:text-[15px] prose-h2:mt-4 prose-h2:mb-2 prose-h2:border-b prose-h2:border-white/10 prose-h2:pb-1
+              prose-h3:text-[15px] prose-h3:mt-4 prose-h3:mb-2
               prose-strong:text-textMain prose-strong:font-semibold
               prose-ul:my-2 prose-ul:space-y-1
               prose-ol:my-2 prose-ol:space-y-1

@@ -187,14 +187,14 @@ class FallbackResponder:
 
     _RESPONSES: dict[UserIntent, str] = {
         UserIntent.GREETING: (
-            "👋 **Hello! I'm CyberGuard AI** — your intelligent assistant for "
-            "cyberbullying awareness and content moderation.\n\n"
-            "Here's what I can do for you:\n"
-            "- 🔍 **Analyze text** for cyberbullying or toxic content\n"
-            "- 🎯 **Generate quizzes** to test your detection skills\n"
-            "- 📊 **Run assessment exercises** to practice identifying harmful content\n"
-            "- ✍️ **Rewrite harmful messages** into safer alternatives\n\n"
-            "What would you like to do today?"
+            "👋 Hey there! I'm **CyberGuard AI** — nice to meet you! "
+            "I'm here to help with online safety, cyberbullying awareness, and content moderation.\n\n"
+            "Feel free to just chat, ask me anything, or if you'd like I can:\n"
+            "- 🔍 **Analyze text** for toxicity\n"
+            "- 🎯 **Run a quiz** on cyberbullying detection\n"
+            "- 📊 **Start an assessment** exercise\n"
+            "- ✍️ **Rewrite** harmful text into something safer\n\n"
+            "What's on your mind?"
         ),
         UserIntent.QUIZ: (
             "🎯 **Let's start the Cyberbullying Detection Quiz!**\n\n"
@@ -242,14 +242,10 @@ class FallbackResponder:
             "Please share the text you'd like me to analyze and I'll get started!"
         ),
         UserIntent.UNKNOWN: (
-            "I understand your message. I'm CyberGuard AI — here to help with "
-            "**cyberbullying detection, content moderation, quizzes, and assessments**.\n\n"
-            "*(Note: My language model is currently loading. Full AI responses will "
-            "be available shortly.)*\n\n"
-            "In the meantime, you can:\n"
-            "- 🎯 Click **Quiz Generator** in the sidebar to test your skills\n"
-            "- 📊 Click **Assessment flow** to practice identifying harmful content\n"
-            "- 🔍 Paste any message here and I'll detect if it's harmful"
+            "I'm here and happy to chat! 😊 "
+            "I specialize in online safety and cyberbullying awareness, but feel free to ask me anything.\n\n"
+            "If you'd like, I can analyze text for toxicity, run a cyberbullying quiz, "
+            "start a practice assessment, or just have a conversation!"
         ),
     }
 

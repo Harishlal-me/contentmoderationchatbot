@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Shield, Sparkles, HelpCircle, Activity, RotateCcw } from 'lucide-react';
+import { Send, Shield, Sparkles, HelpCircle, Activity, RotateCcw, BarChart2 } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import TypingIndicator from './TypingIndicator';
+import SessionPanel from './SessionPanel';
 
 export default function ChatView({ activeModule, messages, setMessages, refreshKey, onChangeModule }) {
-  const [inputMsg, setInputMsg] = useState('');
+  const [inputMsg, setInputMsg]     = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
+  const [panelOpen, setPanelOpen]   = useState(false);
+  const [session, setSession]       = useState(null);
+  const messagesEndRef    = useRef(null);
+  const inputRef          = useRef(null);
   const scrollContainerRef = useRef(null);
   const initiatedModuleRef = useRef(null);
+  const USER_ID = 'default';
 
   // ── Auto-scroll to bottom whenever messages change ──
   const scrollToBottom = useCallback(() => {
@@ -22,6 +26,19 @@ export default function ChatView({ activeModule, messages, setMessages, refreshK
   useEffect(() => {
     scrollToBottom();
   }, [messages, isProcessing, scrollToBottom]);
+
+  // ── Fetch live session data ──
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/session/${USER_ID}`);
+      if (res.ok) setSession(await res.json());
+    } catch { /* backend might not be ready yet */ }
+  }, []);
+
+  // Fetch on mount + whenever panel opens
+  useEffect(() => {
+    if (panelOpen) fetchSession();
+  }, [panelOpen, fetchSession]);
 
   // ── Handle module switching (Quiz / Assessment) ──
   useEffect(() => {
@@ -150,6 +167,8 @@ export default function ChatView({ activeModule, messages, setMessages, refreshK
       });
     } finally {
       setIsProcessing(false);
+      // Refresh session panel after every message
+      fetchSession();
     }
   };
 
@@ -191,21 +210,39 @@ export default function ChatView({ activeModule, messages, setMessages, refreshK
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] text-textMain font-inter overflow-hidden">
 
-      {/* Module Banner (for Quiz / Assess) */}
-      {moduleLabel && (
-        <div className="flex items-center justify-between px-5 py-2.5 border-b border-[#1f1f1f] bg-[#111111]">
-          <span className="text-[13px] font-semibold text-textMuted tracking-wide">{moduleLabel}</span>
-          <button
-            onClick={() => { setMessages([]); initiatedModuleRef.current = null; setTimeout(() => sendSystemTrigger(activeModule), 100); }}
-            className="flex items-center gap-1.5 text-[12px] text-textMuted hover:text-textMain transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Restart
-          </button>
+      {/* ── Top bar with Analysis button ── */}
+      <div className="flex items-center justify-between px-5 py-2 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-md">
+        <div className="flex-1">
+          {moduleLabel && (
+            <div className="flex items-center gap-3">
+              <span className="text-[13px] font-semibold text-textMuted tracking-wide">{moduleLabel}</span>
+              <button
+                onClick={() => { setMessages([]); initiatedModuleRef.current = null; setTimeout(() => sendSystemTrigger(activeModule), 100); }}
+                className="flex items-center gap-1.5 text-[12px] text-textMuted hover:text-textMain transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Restart
+              </button>
+            </div>
+          )}
         </div>
-      )}
+        <motion.button
+          whileHover={{ scale: 1.04 }}
+          whileTap={{ scale: 0.96 }}
+          onClick={() => setPanelOpen(true)}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-accent/10 hover:bg-accent/20 border border-accent/20 hover:border-accent/40 text-accent text-[13px] font-medium transition-all shadow-sm"
+        >
+          <BarChart2 className="w-3.5 h-3.5" />
+          Analysis
+        </motion.button>
+      </div>
 
-      {/* ── Scrollable Messages Area ── */}
+      <SessionPanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        session={session}
+        onRefresh={fetchSession}
+      />
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto px-4 py-6"
