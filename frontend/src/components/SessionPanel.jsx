@@ -15,11 +15,11 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 
 // ── Helpers ──────────────────────────────────────────────────
 const STATUS_META = {
-  '🔴 UNSAFE':  { color: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/20',    icon: ShieldAlert },
-  '🟡 WARNING': { color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', icon: Minus       },
-  '🟢 SAFE':    { color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/20',  icon: ShieldCheck },
+  'UNSAFE':  { color: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/20',    icon: ShieldAlert },
+  'WARNING': { color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', icon: Minus       },
+  'SAFE':    { color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/20',  icon: ShieldCheck },
 };
-const getMeta = (s) => STATUS_META[s] || STATUS_META['🟢 SAFE'];
+const getMeta = (s) => STATUS_META[s] || STATUS_META['SAFE'];
 
 function getBarColor(score) {
   return score >= 70 ? '#ef4444' : score >= 40 ? '#eab308' : '#22c55e';
@@ -319,7 +319,7 @@ export default function SessionPanel({ open, onClose, session, onRefresh }) {
                           <span className="text-textMuted w-10 flex-shrink-0 font-mono">Msg {i + 1}</span>
                           <span className="text-textMuted/60 font-mono w-16 flex-shrink-0">{msg.time || '--:--:--'}</span>
                           <span className={`font-semibold ${meta.color} flex items-center gap-1`}>
-                            {msg.status.split(' ')[0]} {msg.risk_score}%
+                            {msg.status} {msg.risk_score}%
                             <TrendArrow prev={prev} curr={msg.risk_score} />
                           </span>
                         </div>

@@ -46,11 +46,11 @@ def _generate_summary(risk_score: int) -> str:
 
 def _get_status_label(risk_score: int) -> str:
     if risk_score >= 70:
-        return "🔴 UNSAFE"
+        return "UNSAFE"
     elif risk_score >= 40:
-        return "🟡 WARNING"
+        return "WARNING"
     else:
-        return "🟢 SAFE"
+        return "SAFE"
 
 def _analyze_performance(scores: list[int]) -> str:
     if len(scores) < 2:

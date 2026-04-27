@@ -321,13 +321,13 @@ class ChatController:
             if is_analysis:
                 r_score = bert_result.get("risk_score", 0)
                 if r_score < 40:
-                    icon = "🟢 SAFE"
+                    label = "SAFE"
                 elif r_score < 70:
-                    icon = "🟡 WARNING"
+                    label = "WARNING"
                 else:
-                    icon = "🔴 UNSAFE"
-                # Prefill only the status header — let LLM fill the Markdown sections
-                prefill = f"{icon}\n\n"
+                    label = "UNSAFE"
+                # Prefill only the status header (text only, no emoji)
+                prefill = f"{label}\n\n"
 
             for chunk in self.llm_handler.generate_response(
                 conversation_history,

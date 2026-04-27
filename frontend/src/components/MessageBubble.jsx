@@ -110,10 +110,12 @@ export default function MessageBubble({ msg, onRewrite, isExplicitRequest, isSho
           }`}>
              {msg.bert_info && !isUser && !isExplicitRequest && !isShortUserMsg && (
                <div 
-                 title={msg.bert_info.is_threat ? 'Cyberbullying Detected' : 'Verified Safe'}
+                 title={`Risk Score: ${msg.bert_info.risk_score}%`}
                  className={`absolute -right-[6px] -top-[6px] w-[14px] h-[14px] rounded-full border-2 border-[#0a0a0a] z-10 ${
-                   msg.bert_info.is_threat 
+                   msg.bert_info.risk_score >= 70
                      ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]' 
+                     : msg.bert_info.risk_score >= 40
+                     ? 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]'
                      : 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]'
                  }`} 
                />
