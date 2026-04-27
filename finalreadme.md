@@ -18,7 +18,7 @@
 
 The **CyberGuard AI Platform** is an advanced content moderation chatbot and educational assistant designed to detect, analyze, and educate users on cyberbullying and harmful online behavior. 
 
-Unlike traditional rule-based filters, CyberGuard utilizes a **Hybrid AI Pipeline**—fusing a blazing-fast local **BERT deep learning model** for immediate threat classification with an **Ollama-powered Local LLM (Llama 3.2)** for deep semantic analysis, reasoning, and context-awareness.
+Unlike traditional rule-based filters, CyberGuard utilizes a **Hybrid AI Pipeline**—fusing a blazing-fast local **BERT deep learning model** for immediate threat classification with an **Ollama-powered Local LLM (Llama 3.2)** for deep semantic analysis, reasoning, and context-awareness. It now includes a **Behavior Performance Tracker** to monitor user trends in real-time.
 
 ---
 
@@ -35,6 +35,14 @@ The chatbot is built with modularity and local execution in mind, ensuring data 
 Acts as the central router for the application:
 - **Intent Detection**: Analyzes user input to route the request dynamically. Explanatory questions (e.g., *"What is cyberbullying?"*) stay in standard **Chat Mode**, while moderation triggers (e.g., *"Analyze this text"*) activate the deep **Analysis Mode**.
 - **Command Management**: Processes discrete system commands like `QUIZ` (generates MCQs), `ASSESS` (generates situational paragraphs), and `REWRITE` (generates safe alternatives to toxic text).
+- **Behavioral Pipeline**: Tracks historical toxicity across the session to detect escalation patterns and provide "Repeated harmful behavior" signals to the LLM.
+
+### 4. 📊 Analysis Dashboard (The Insights)
+A unified, real-time dashboard built with **Chart.js** that provides:
+- **Risk Trend Graph**: Visualizes the volatility of user behavior over a timeline.
+- **Performance Insight**: Intelligent interpretation of behavior (e.g., "Behavior is worsening").
+- **Dynamic Suggestion Engine**: Context-aware tips to improve communication.
+- **Conversation Breakdown**: Detailed history with trend indicators and status icons.
 
 ### 3. 🖥️ The Client Interfaces
 CyberGuard exposes its capabilities via two primary interfaces:
@@ -51,11 +59,13 @@ When a user submits text for analysis, the chatbot executes the following end-to
 2. **Text Preprocessing**: Normalization, URL handling, and mention extraction.
 3. **BERT Classification**: Extracts immediate threat probability (e.g., 96.8% Confidence).
 4. **Context Injection**: Selects appropriate system prompts based on the BERT verdict (`SAFE_RESPONSE_PROMPT` vs. `EXPLANATION_PROMPT`).
-5. **LLM Sentence Analysis**: The local Llama model breaks down the text sentence-by-sentence, inferring semantics, sarcasm, and nuanced intent.
-6. **Rule-Based Mapping**: Cross-references outputs with hardcoded RegEx limits mapped to severity weights (*High=1.0, Medium=0.55, Low=0.25*).
-7. **Decision Engine Synthesis**: Calculates the unified Risk Score.
-8. **Action Enforcement**: Returns structured JSON determining if the message is `Safe`, requires `Review`, or is strictly `Unsafe`.
-9. **UI Rendering**: Streams the explanation and reveals the final Moderation Panel.
+5. **Behavioral Context Builder**: Injects the last 5 messages and historical risk scores into the LLM prompt to detect escalation or patterns.
+6. **LLM Sentence Analysis**: The local Llama model breaks down the text sentence-by-sentence, inferring semantics, sarcasm, and nuanced intent.
+7. **Rule-Based Mapping**: Cross-references outputs with hardcoded RegEx limits mapped to severity weights (*High=1.0, Medium=0.55, Low=0.25*).
+8. **Decision Engine Synthesis**: Calculates the unified Risk Score.
+9. **Action Enforcement**: Returns structured JSON determining if the message is `Safe`, requires `Review`, or is strictly `Unsafe`.
+10. **Analysis Dashboard Sync**: The **Behavior Performance Tracker** updates live with risk graphs, trend insights, and timestamped message breakdowns.
+11. **UI Rendering**: Streams the explanation using a strict Markdown engine followed by the live-updating analysis indicators.
 
 ---
 
