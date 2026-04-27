@@ -295,14 +295,40 @@ class ChatController:
         if is_analysis:
             raw = self.bert_module.classify_text(message)
             bert_result = raw if isinstance(raw, dict) else BertResult.empty(message).to_dict()
+            
+            # --- Behavioral Context Builder ---
+            # Score-based tracking: >60 is considered harmful/toxic
+            toxic_count = sum(1 for m in conversation_history if m.get('risk_score', 0) > 60)
+            
+            # Structured context of the last 5 messages
+            recent_msgs = [f"User: {m.get('content', '')}" for m in conversation_history if str(m.get('role', '')).lower() == 'user'][-5:]
+            context_str = "\n".join(recent_msgs) if recent_msgs else "No previous context."
+            
+            behavior_hint = "User shows repeated harmful behavior." if toxic_count >= 3 else "Normal interaction."
+            
+            # Clean prompt injection
+            final_prompt = f"Context:\n{context_str}\n\nBehavior:\n{behavior_hint}\n\nAnalyze:\n{message}"
+            conversation_history.append({"role": "user", "content": final_prompt})
         else:
             bert_result = BertResult.empty(message).to_dict()
+            conversation_history.append({"role": "user", "content": message})
 
         # Shared list populated in-place by the generator below
         response_parts: list[str] = []
 
         def _capturing_generator() -> Generator[str, None, None]:
-            prefill = "Classification: " if is_analysis else None
+            prefill = None
+            if is_analysis:
+                r_score = bert_result.get("risk_score", 0)
+                if r_score < 40:
+                    icon = "🟢 SAFE"
+                elif r_score < 70:
+                    icon = "🟡 WARNING"
+                else:
+                    icon = "🔴 UNSAFE"
+                # User asked to prefill ONLY the first line
+                prefill = f"{icon}\nConfidence: "
+
             for chunk in self.llm_handler.generate_response(
                 conversation_history,
                 system_override=sys_override,

@@ -47,7 +47,16 @@ class CommandRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    history_dicts = [{"role": m.role, "content": m.content} for m in req.history]
+    history_dicts = []
+    for m in req.history:
+        info = m.bert_info or {}
+        history_dicts.append({
+            "role": m.role,
+            "content": m.content,
+            "risk_score": info.get("risk_score", 0),
+            "is_threat": info.get("is_threat", False)
+        })
+        
     result = controller.process_message(req.prompt, history_dicts)
     
     async def text_generator():
@@ -62,7 +71,16 @@ async def chat_endpoint(req: ChatRequest):
 
 @app.post("/api/command")
 async def command_endpoint(req: CommandRequest):
-    history_dicts = [{"role": m.role, "content": m.content} for m in req.history]
+    history_dicts = []
+    for m in req.history:
+        info = m.bert_info or {}
+        history_dicts.append({
+            "role": m.role,
+            "content": m.content,
+            "risk_score": info.get("risk_score", 0),
+            "is_threat": info.get("is_threat", False)
+        })
+        
     gen = controller.process_command(req.cmd, req.metadata, history_dicts)
     
     async def text_generator():
